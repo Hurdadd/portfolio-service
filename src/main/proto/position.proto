@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package portfolio;
+
+option java_package = "portfolio_service.proto";
+option java_multiple_files = true;
+
+import "google/protobuf/timestamp.proto";
+
+message Position {
+  string id = 1;
+  string client_id = 2;
+  string symbol = 3;
+
+  int64 quantity = 4;
+
+  int64 avg_price_scaled = 5;
+
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message PositionList {
+  repeated Position items = 1;
+}

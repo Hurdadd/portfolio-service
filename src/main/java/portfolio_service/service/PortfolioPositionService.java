@@ -1,14 +1,19 @@
 package portfolio_service.service;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import portfolio_service.api.NotFoundException;
 import portfolio_service.config.TenantContext;
+import portfolio_service.config.TraceIdFilter;
 import portfolio_service.domain.PortfolioPosition;
 import portfolio_service.dto.CreatePositionRequest;
 import portfolio_service.dto.PositionResponse;
 import portfolio_service.dto.UpdatePositionRequest;
+import portfolio_service.kafka.PositionChangedEvent;
+import portfolio_service.kafka.PositionEventType;
 import portfolio_service.redis.CacheTtl;
 import portfolio_service.redis.PositionProtoMapper;
 import portfolio_service.redis.RedisBytesCache;
@@ -29,7 +34,10 @@ public class PortfolioPositionService {
     private final PortfolioPositionRepository repo;
     private final RedisBytesCache cache;
     private final RedisLock lock;
+    private final ApplicationEventPublisher events;
 
+    // of course you can use MapStruct to map all this data,
+    // but for simplicity I mapped it in a handy way
     @Transactional
     public PositionResponse create(CreatePositionRequest req) {
         PortfolioPosition p = new PortfolioPosition();
@@ -44,11 +52,16 @@ public class PortfolioPositionService {
 
         safeDel(clientListKey(saved.getClientId()));
 
+        publishEvent(saved, PositionEventType.POSITION_CREATED);
         return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
     public PositionResponse getById(UUID id) {
+
+        //this one Could be extracted into a separate helper (e.g., CacheAsideExecutor)
+        // to keep service methods clean.
+
         String cacheKey = positionKey(id.toString());
         String lockKey  = RedisKeys.positionByIdLock(ENV, tenantNs(), id.toString());
 
@@ -69,6 +82,7 @@ public class PortfolioPositionService {
                 return loadFromDbAndBestEffortCacheById(id, cacheKey);
             }
 
+            // token != null
             try {
                 byte[] bytes2 = cache.get(cacheKey);
                 if (bytes2 != null) {
@@ -151,6 +165,7 @@ public class PortfolioPositionService {
         safeDel(positionKey(id.toString()));
         safeDel(clientListKey(p.getClientId()));
 
+        publishEvent(p, PositionEventType.POSITION_UPDATED);
         return toResponse(p);
     }
 
@@ -163,7 +178,14 @@ public class PortfolioPositionService {
 
         safeDel(positionKey(id.toString()));
         safeDel(clientListKey(p.getClientId()));
+
+        publishEvent(p, PositionEventType.POSITION_DELETED);
     }
+
+
+
+
+
 
     private PositionResponse loadFromDbAndBestEffortCacheById(UUID id, String cacheKey) {
         PositionResponse resp = loadFromDb(id);
@@ -243,5 +265,23 @@ public class PortfolioPositionService {
     private void sleepSilently(int ms) {
         try { Thread.sleep(ms); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+    }
+
+    private void publishEvent(PortfolioPosition position, PositionEventType type) {
+        PositionChangedEvent event = new PositionChangedEvent(
+                UUID.randomUUID(),
+                type,
+                Instant.now(),
+                TenantContext.get(),
+                MDC.get(TraceIdFilter.TRACE_ID),
+                new PositionChangedEvent.Payload(
+                        position.getId(),
+                        position.getClientId(),
+                        position.getSymbol(),
+                        position.getQuantity(),
+                        position.getAvgPrice()
+                )
+        );
+        events.publishEvent(event);
     }
 }

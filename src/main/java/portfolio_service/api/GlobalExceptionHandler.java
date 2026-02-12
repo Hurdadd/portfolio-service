@@ -1,6 +1,7 @@
 package portfolio_service.api;
 
 import jakarta.validation.ConstraintViolationException;
+import io.sentry.Sentry;
 import org.slf4j.MDC;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
@@ -60,6 +61,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiError> handleDb(DataAccessException ex) {
+        Sentry.captureException(ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiError.builder()
                 .code("DB_ERROR")
                 .message("Database error.")
@@ -71,6 +73,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnknown(Exception ex) {
+        Sentry.captureException(ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiError.builder()
                 .code("INTERNAL_ERROR")
                 .message("Unexpected error.")
@@ -86,7 +89,10 @@ public class GlobalExceptionHandler {
     }
 
     private String traceId() {
-        String t = MDC.get(TraceIdFilter.TRACE_ID);
+        String t = MDC.get("traceId");
+        if (t == null || t.isBlank()) {
+            t = MDC.get(TraceIdFilter.TRACE_ID);
+        }
         return (t == null || t.isBlank()) ? "missing" : t;
     }
 }

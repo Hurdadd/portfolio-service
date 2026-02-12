@@ -14,7 +14,7 @@ import java.util.UUID;
 @Component
 public class TraceIdFilter extends OncePerRequestFilter {
 
-    public static final String TRACE_ID = "traceId";
+    public static final String TRACE_ID = "xTraceId";
     public static final String TRACE_HEADER = "X-Trace-Id";
 
     @Override
